@@ -1,0 +1,79 @@
+name: Generate Markdown from Runs
+
+on:
+  push:
+    paths:
+      - 'runs/**/*.run'
+      - 'IRONCLAD/**/*.run'
+      - 'THE_SILENT/**/*.run'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  generate-markdown:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 2
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    
+    - name: Install uv
+      uses: astral-sh/setup-uv@v4
+      with:
+        enable-cache: true
+        cache-dependency-glob: "uv.lock"
+    
+    - name: Install dependencies
+      run: |
+        uv sync
+    
+    - name: Generate Markdown files
+      run: |
+        # Check if runs directory exists
+        if [ -d "runs" ]; then
+          echo "Processing runs directory..."
+          uv run python json_to_markdown.py runs -o output --lang ja -d
+        else
+          echo "No runs directory found, processing individual character directories..."
+          dirs=""
+          [ -d "IRONCLAD" ] && dirs="$dirs IRONCLAD"
+          [ -d "THE_SILENT" ] && dirs="$dirs THE_SILENT"
+          [ -d "DEFECT" ] && dirs="$dirs DEFECT"
+          [ -d "WATCHER" ] && dirs="$dirs WATCHER"
+          
+          if [ -n "$dirs" ]; then
+            uv run python json_to_markdown.py $dirs -o output --lang ja -d
+          else
+            echo "No run directories found"
+            exit 1
+          fi
+        fi
+    
+    - name: Check for changes
+      id: check_changes
+      run: |
+        git add output/
+        if git diff --staged --quiet; then
+          echo "has_changes=false" >> $GITHUB_OUTPUT
+        else
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Commit and push changes
+      if: steps.check_changes.outputs.has_changes == 'true'
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git commit -m "🤖 Generate Markdown from runs
+
+        Co-authored-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+        git push
